@@ -263,6 +263,17 @@ impl QQBot {
     pub async fn cancel_stream(&self, user_openid: &str) -> Result<()> {
         self.api.cancel_stream(user_openid).await
     }
+
+    /// 获取指定的频道消息（单条）
+    /// 注意：QQ Bot API 不支持批量获取历史消息，只能获取已知 message_id 的单条消息
+    pub async fn get_channel_message(&self, channel_id: &str, message_id: &str) -> Result<Message> {
+        self.api.get_channel_message(channel_id, message_id).await
+    }
+
+    /// 获取指定的频道私信消息（单条）
+    pub async fn get_dms_message(&self, guild_id: &str, message_id: &str) -> Result<Message> {
+        self.api.get_dms_message(guild_id, message_id).await
+    }
 }
 
 /// 按钮动作类型

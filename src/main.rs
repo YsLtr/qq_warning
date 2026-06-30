@@ -38,6 +38,13 @@ enum Commands {
         #[arg(short = 't', long)]
         hidetip: bool,
     },
+    /// 获取指定的频道消息
+    GetMessage {
+        /// 频道 ID
+        channel_id: String,
+        /// 消息 ID
+        message_id: String,
+    },
     /// 频道管理
     Guild {
         #[command(subcommand)]
@@ -310,6 +317,42 @@ async fn main() -> Result<()> {
                 bot.recall_user_message(&target_id, &message_id, hidetip).await?;
             }
             tracing::info!("✓ 消息撤回成功");
+        }
+
+        Commands::GetMessage { channel_id, message_id } => {
+            let bot = qqbot::QQBot::new(config);
+
+            tracing::info!("正在获取频道消息 {}...", message_id);
+            let message = bot.get_channel_message(&channel_id, &message_id).await?;
+
+            tracing::info!("✓ 消息详情:");
+            tracing::info!("  ID: {}", message.id);
+
+            if let Some(author) = &message.author {
+                tracing::info!("  作者: {} ({})",
+                    author.username.as_deref().unwrap_or("未知"),
+                    author.id
+                );
+            }
+
+            if let Some(content) = &message.content {
+                tracing::info!("  内容: {}", content);
+            }
+
+            if let Some(timestamp) = &message.timestamp {
+                tracing::info!("  时间: {}", timestamp);
+            }
+
+            if let Some(attachments) = &message.attachments {
+                if !attachments.is_empty() {
+                    tracing::info!("  附件: {} 个", attachments.len());
+                    for (idx, att) in attachments.iter().enumerate() {
+                        if let Some(url) = &att.url {
+                            tracing::info!("    [{}] {}", idx + 1, url);
+                        }
+                    }
+                }
+            }
         }
 
         Commands::Guild { action } => {

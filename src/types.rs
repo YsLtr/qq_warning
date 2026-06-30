@@ -292,3 +292,48 @@ pub struct MessageDelete {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hidetip: Option<bool>,
 }
+
+/// 消息对象（用于获取消息历史）
+#[derive(Debug, Deserialize, Clone)]
+pub struct Message {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<MessageAuthor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<MessageAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub msg_seq: Option<i64>,
+}
+
+/// 消息作者信息
+#[derive(Debug, Deserialize, Clone)]
+pub struct MessageAuthor {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bot: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_openid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub union_openid: Option<String>,
+}
+
+/// 消息附件
+#[derive(Debug, Deserialize, Clone)]
+pub struct MessageAttachment {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
