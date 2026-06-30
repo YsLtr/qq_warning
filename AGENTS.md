@@ -1,110 +1,86 @@
 # Agent Handoff
 
-## Current Session - 2026/06/30 16:25 UTC+8
+## Current Session - 2026/06/30 16:36 UTC+8
 
-### Project Status: ✅ GitHub 发布流程配置完成
+### Project Status: ✅ 消息功能增强完成
 
-QQ Warning Bot - Rust QQ 机器人命令行工具。本次会话完成了 GitHub 仓库创建、CI/CD 配置修复，以及 v0.1.0 版本发布构建。
+QQ Warning Bot - Rust QQ 机器人命令行工具。本次会话完成了消息 ID 获取和单条消息查询功能，并调研了 QQ Bot API 的消息历史限制。
 
 ### What Was Done This Session
 
-1. **GitHub 仓库创建** ✅
-   - 仓库地址: https://github.com/YsLtr/qq_warning
-   - 推送所有代码到 master 分支
-   - 配置公开仓库，MIT 许可证
+1. **用户需求分析** ✅
+   - 用户希望实现：读取最新的几条消息、获取自己发送的消息 ID
+   - 调研了 QQ Bot 官方 API 和参考项目
+   - 发现关键限制：**QQ Bot API 不提供批量获取历史消息的接口**
 
-2. **GitHub Actions 配置修复** ✅
-   - **问题**: Linux ARM64 交叉编译失败导致整个构建矩阵取消
-   - **解决方案**: 改用 GitHub 原生 ARM64 runner (`ubuntu-24.04-arm64`)
-   - 移除不必要的交叉编译工具配置
-   - 构建矩阵现在使用 5 个原生平台运行器
+2. **消息 ID 获取功能** ✅
+   - 所有 `send_*` API 现在都返回 `message_id: String`
+   - `MessageResponse` 结构体包含 `id` 和 `timestamp`
+   - 用户可保存消息 ID 用于后续撤回或查询
 
-3. **发布标签创建** ✅
-   - 创建 v0.1.0 标签并推送
-   - 自动触发 GitHub Actions 构建流程
-   - 当前构建运行中: Run ID 28430599576
+3. **单条消息查询功能** ✅
+   - 实现 `get_channel_message` - 获取指定的频道消息
+   - 实现 `get_dms_message` - 获取指定的频道私信
+   - 添加 CLI 命令：`./qq_warning get-message <channel_id> <message_id>`
+   - 新增类型：`Message`, `MessageAuthor`, `MessageAttachment`
 
-4. **监控工具创建** ✅
-   - 创建 `check_build.sh` 脚本方便查看构建状态
-   - 包含有用的 GitHub CLI 命令提示
+4. **API 限制调研** ✅
+   - 参考项目：[zhinjs/qq-official-bot](https://github.com/zhinjs/qq-official-bot) (Node.js)
+   - 参考项目：[zimoyin/qqbot-sdk](https://github.com/zimoyin/qqbot-sdk) (Java/Kotlin)
+   - **结论**：QQ Bot API 只支持获取已知 message_id 的单条频道消息
+   - 无法批量获取用户私聊、群消息、频道消息的历史列表
 
-### Current Build Status
-
-**运行 ID**: 28430599576  
-**状态**: 正在构建 ⚙️  
-**触发时间**: 2026-06-30 16:22 UTC+8
-
-**构建任务**:
-1. Linux x86_64 (ubuntu-latest)
-2. Linux ARM64 (ubuntu-24.04-arm64) ← 已修复
-3. macOS x86_64 (macos-latest)
-4. macOS ARM64 (macos-latest) 
-5. Windows x86_64 (windows-latest)
-
-**预期产物**:
-- `qq_warning-linux-amd64.tar.gz`
-- `qq_warning-linux-arm64.tar.gz`
-- `qq_warning-macos-amd64.tar.gz`
-- `qq_warning-macos-arm64.tar.gz`
-- `qq_warning-windows-amd64.exe.zip`
-
-每个压缩包包含: 二进制文件 + config.toml + README.md
+5. **文档创建** ✅
+   - `USAGE_EXAMPLES.md` - 详细使用示例和 API 限制说明
+   - `IMPLEMENTATION_SUMMARY.md` - 技术实现总结
+   - 提供 WebSocket Daemon 模式作为替代方案
 
 ### Key Files Modified
 
 ```
-.github/workflows/release.yml  # 修复 ARM64 构建配置
-check_build.sh                 # 新增构建状态检查脚本
+src/api.rs                     # 新增 get_channel_message, get_dms_message
+src/qqbot.rs                   # 暴露消息查询 API
+src/types.rs                   # 新增 Message, MessageAuthor, MessageAttachment
+src/main.rs                    # 新增 get-message 命令
+USAGE_EXAMPLES.md              # 新增：使用示例文档
+IMPLEMENTATION_SUMMARY.md      # 新增：实现总结文档
 ```
 
-### GitHub Actions 修复详情
+### QQ Bot API 限制发现
 
-**修复前的问题**:
-```yaml
-- os: ubuntu-latest
-  target: aarch64-unknown-linux-gnu
-  # 使用交叉编译工具，但配置不完整
-```
+**关键发现**：QQ Bot API **不支持批量获取历史消息列表**
 
-**修复后**:
-```yaml
-- os: ubuntu-24.04-arm64
-  target: aarch64-unknown-linux-gnu
-  # 使用原生 ARM64 runner，无需交叉编译
-```
+✅ **API 支持的功能**：
+- `GET /channels/{channel_id}/messages/{message_id}` - 获取单条频道消息
+- `GET /dms/{guild_id}/messages/{message_id}` - 获取单条频道私信
+- `POST` 发送消息时返回 `message_id`
+- WebSocket 实时接收消息事件
 
-**优势**:
-- 无需复杂的交叉编译工具链
-- 构建速度更快（原生编译）
-- 避免交叉编译兼容性问题
-- 配置更简洁清晰
+❌ **API 不支持的功能**：
+- 获取用户私聊消息历史列表
+- 获取群消息历史列表
+- 获取频道消息历史列表
+- 分页浏览历史消息
 
-### Monitoring Commands
+**替代方案**：
+1. 使用 `./qq_warning daemon` 启动 WebSocket 服务
+2. 在 WebSocket 事件处理中实现消息缓存
+3. 可选：添加数据库持久化（SQLite/PostgreSQL）
+
+详见：`USAGE_EXAMPLES.md` 和 `IMPLEMENTATION_SUMMARY.md`
+
+### Usage Examples
 
 ```bash
-# 查看构建状态
-./check_build.sh
+# 发送消息（自动返回消息 ID）
+./qq_warning send to <user_openid> "Hello"
 
-# 在浏览器中查看
-gh run view 28430599576 --web
+# 获取指定的频道消息
+./qq_warning get-message <channel_id> <message_id>
 
-# 实时监控（等待完成）
-gh run watch 28430599576
-
-# 构建完成后查看 Release
-gh release view v0.1.0
+# 启动 WebSocket 服务实时接收消息
+./qq_warning daemon
 ```
-
-### Known Issues & Resolutions
-
-**第一次构建失败 (Run ID 28430329970):**
-- **原因**: Linux ARM64 使用 ubuntu-latest + 交叉编译工具，但配置不完整
-- **解决**: 改用 ubuntu-24.04-arm64 原生 runner
-- **状态**: 已修复并重新触发构建
-
-**当前构建 (Run ID 28430599576):**
-- **状态**: 正在运行，预计 5-10 分钟完成
-- **监控**: 可通过 ./check_build.sh 或浏览器查看进度
 
 ### Configuration
 
@@ -144,62 +120,67 @@ client_secret = "your_client_secret_here"
 ```
 Branch: master
 Remote: https://github.com/YsLtr/qq_warning
-Latest commit: de1fa7e - fix: use native ARM64 runner instead of cross-compilation
+Latest commit: 7718ec9 - feat: add message ID retrieval and single message query
 
-Untracked:
-?? check_build.sh
+Modified:
+M  check_build.sh
 
 所有功能代码已提交并推送到 GitHub。
 ```
 
 ### Decisions Made
 
-1. **使用原生 ARM64 runner**: GitHub Actions 提供原生 ARM64 机器，避免交叉编译复杂性
-2. **多平台支持**: 构建 5 个平台的二进制文件（Linux x86_64/ARM64, macOS x86_64/ARM64, Windows x86_64）
-3. **自动化发布**: 通过 Git tag 触发自动构建和 Release 创建
-4. **包含配置文件**: 每个发行包都包含示例配置文件，便于用户快速开始
+1. **不实现历史消息批量获取**: QQ Bot API 不提供此功能，遵循官方限制
+2. **提供单条消息查询**: 实现已知 message_id 的频道消息查询
+3. **推荐 WebSocket Daemon 模式**: 作为实时接收和缓存消息的替代方案
+4. **完善文档**: 创建详细的使用示例和实现说明，避免用户误解 API 能力
 
 ### Next Steps
 
-**立即任务**:
-1. ✅ 等待 GitHub Actions 构建完成（约 5-10 分钟）
-2. ✅ 验证所有平台的二进制文件已正确生成
-3. ✅ 检查 GitHub Release v0.1.0 是否成功创建
+**立即可用的功能**:
+1. ✅ 所有发送消息 API 现在返回消息 ID
+2. ✅ 可查询已知 ID 的频道消息
+3. ✅ 完整的命令行接口和文档
 
-**后续任务**:
-1. 下载并测试各平台的二进制文件
-2. 使用真实 QQ Bot 凭证进行功能测试
-3. 收集用户反馈，规划下一个版本功能
+**后续改进方向**:
+1. 在 WebSocket Daemon 模式中添加消息缓存功能
+2. 实现本地消息数据库存储（SQLite）
+3. 添加消息查询命令（基于本地缓存）
+4. 考虑添加消息统计和搜索功能
 
-**可选改进**:
-1. 添加 CI 自动化测试
-2. 创建 Docker 镜像
-3. 发布到包管理器（Cargo, Homebrew, AUR）
+**可选任务**:
+1. 测试 `get-message` 命令的实际效果
+2. 完善 WebSocket 事件处理逻辑
+3. 添加更多消息类型的解析支持
 
 ### Reference Documents
 
 - `README.md` / `README_zh.md` - 完整项目文档（中英文）
 - `API_COVERAGE.md` - API 功能覆盖清单
-- `EXAMPLES.md` - 使用示例
+- `USAGE_EXAMPLES.md` - **新增**：使用示例和 API 限制说明
+- `IMPLEMENTATION_SUMMARY.md` - **新增**：技术实现总结
+- `EXAMPLES.md` - 命令示例
 - `CHEATSHEET.md` - 命令速查表
 - `.github/workflows/release.yml` - CI/CD 配置
 - GitHub 仓库: https://github.com/YsLtr/qq_warning
-- 构建状态: https://github.com/YsLtr/qq_warning/actions/runs/28430599576
 
 ### User Context
 
 - 用户目标: 创建功能完整的 QQ Bot 命令行工具，方便脚本集成
 - 平台: Arch Linux on Chromebook C13 Yoga
-- 关注点: 跨平台发布、自动化构建、开源分享
+- 关注点: 消息功能完善、API 限制理解、实用性优先
+- 当前需求: 获取消息 ID 和查询消息（已完成）
 
 ### Suggested Skills for Next Session
 
-- 验证构建产物
-- 测试真实环境部署
-- 社区反馈收集和功能规划
+- 实现 WebSocket 消息缓存功能
+- 添加本地消息数据库（SQLite）
+- 测试和优化消息查询性能
+- 收集用户反馈
 
 ---
 
-**Handoff 完成时间:** 2026-06-30 16:25:00 UTC+8  
-**项目状态:** GitHub 发布流程已配置，v0.1.0 构建中 ⚙️  
-**待办事项:** 等待构建完成，验证发行版文件
+**Handoff 完成时间:** 2026-06-30 16:36:00 UTC+8  
+**项目状态:** 消息 ID 获取和单条消息查询功能已完成 ✅  
+**API 限制:** QQ Bot 不支持批量历史消息获取，已文档化替代方案  
+**待办事项:** 可选实现 WebSocket 消息缓存功能
