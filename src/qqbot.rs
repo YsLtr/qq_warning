@@ -10,7 +10,27 @@ use tokio::sync::Mutex;
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
+    #[serde(deserialize_with = "deserialize_string_or_number")]
     expires_in: u64,
+}
+
+fn deserialize_string_or_number<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Deserialize};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNumber {
+        String(String),
+        Number(u64),
+    }
+
+    match StringOrNumber::deserialize(deserializer)? {
+        StringOrNumber::String(s) => s.parse::<u64>().map_err(de::Error::custom),
+        StringOrNumber::Number(n) => Ok(n),
+    }
 }
 
 #[derive(Debug, Clone)]
