@@ -1,0 +1,6 @@
+/target
+/Cargo.lock
+
+# Config with credentials
+config.local.toml
+

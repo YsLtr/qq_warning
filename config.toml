@@ -1,0 +1,20 @@
+# QQ Bot 配置文件
+# 从 QQ 开放平台获取: https://q.qq.com/
+
+[bot]
+# 机器人 AppID
+app_id = "your_app_id_here"
+
+# 机器人 ClientSecret
+client_secret = "your_client_secret_here"
+
+[api]
+# API 基础地址
+base_url = "https://api.sgroup.qq.com"
+
+# 认证 API 地址
+auth_url = "https://bots.qq.com/app/getAppAccessToken"
+
+[rate_limit]
+# 速率限制：消息间隔（秒）
+min_interval_secs = 1
