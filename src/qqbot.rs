@@ -1,290 +1,273 @@
+use crate::api::QQBotApi;
 use crate::config::Config;
-use anyhow::{Context, Result};
-use chrono::Utc;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use crate::types::*;
+use anyhow::Result;
+use std::time::Duration;
 
-#[derive(Debug, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    #[serde(deserialize_with = "deserialize_string_or_number")]
-    expires_in: u64,
-}
-
-fn deserialize_string_or_number<'de, D>(deserializer: D) -> Result<u64, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::{self, Deserialize};
-
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum StringOrNumber {
-        String(String),
-        Number(u64),
-    }
-
-    match StringOrNumber::deserialize(deserializer)? {
-        StringOrNumber::String(s) => s.parse::<u64>().map_err(de::Error::custom),
-        StringOrNumber::Number(n) => Ok(n),
-    }
-}
-
-#[derive(Debug, Clone)]
-struct TokenCache {
-    token: String,
-    expires_at: Instant,
-}
-
+/// QQBot 高级封装
 pub struct QQBot {
-    config: Config,
-    client: Client,
-    token_cache: Arc<Mutex<Option<TokenCache>>>,
-    last_send_time: Arc<Mutex<Option<Instant>>>,
-}
-
-#[derive(Debug, Serialize)]
-struct AuthRequest {
-    #[serde(rename = "appId")]
-    app_id: String,
-    #[serde(rename = "clientSecret")]
-    client_secret: String,
-}
-
-#[derive(Debug, Serialize)]
-struct MessageRequest {
-    msg_type: u8,
-    content: String,
-    msg_seq: i64,
+    api: QQBotApi,
 }
 
 impl QQBot {
     pub fn new(config: Config) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("Failed to create HTTP client");
-
         Self {
-            config,
-            client,
-            token_cache: Arc::new(Mutex::new(None)),
-            last_send_time: Arc::new(Mutex::new(None)),
+            api: QQBotApi::new(config),
         }
     }
 
-    /// 获取 access token，自动处理缓存和刷新
+    /// 获取 access token
     pub async fn get_access_token(&self) -> Result<String> {
-        let mut cache = self.token_cache.lock().await;
-
-        // 检查缓存是否有效（提前 60 秒刷新）
-        if let Some(cached) = &*cache {
-            if cached.expires_at > Instant::now() + Duration::from_secs(60) {
-                return Ok(cached.token.clone());
-            }
-        }
-
-        // 获取新 token
-        let auth_req = AuthRequest {
-            app_id: self.config.bot.app_id.clone(),
-            client_secret: self.config.bot.client_secret.clone(),
-        };
-
-        let resp = self
-            .client
-            .post(&self.config.api.auth_url)
-            .json(&auth_req)
-            .send()
-            .await
-            .context("认证请求失败")?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("认证失败 ({}): {}", status, body);
-        }
-
-        let token_resp: TokenResponse = resp
-            .json()
-            .await
-            .context("解析认证响应失败")?;
-
-        // 更新缓存
-        let new_cache = TokenCache {
-            token: token_resp.access_token.clone(),
-            expires_at: Instant::now() + Duration::from_secs(token_resp.expires_in),
-        };
-
-        *cache = Some(new_cache);
-
-        Ok(token_resp.access_token)
+        self.api.get_access_token().await
     }
 
-    /// 生成消息序列号
-    fn next_msg_seq(seed: &str) -> i64 {
-        let base = Utc::now().timestamp_millis();
-        let salt = seed
-            .bytes()
-            .fold(0_i64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as i64));
-        (base.wrapping_add(salt).rem_euclid(65535)).max(1)
-    }
-
-    /// 应用速率限制
-    async fn apply_rate_limit(&self) {
-        let mut last_send = self.last_send_time.lock().await;
-
-        if let Some(last) = *last_send {
-            let elapsed = last.elapsed();
-            let min_interval = Duration::from_secs(self.config.rate_limit.min_interval_secs);
-
-            if elapsed < min_interval {
-                let sleep_duration = min_interval - elapsed;
-                tokio::time::sleep(sleep_duration).await;
-            }
-        }
-
-        *last_send = Some(Instant::now());
-    }
-
-    /// 发送消息到用户 (C2C)
-    pub async fn send_user_message(&self, user_openid: &str, content: &str) -> Result<()> {
-        self.apply_rate_limit().await;
-
-        // 发送"正在输入"提示
-        let _ = self.send_typing_indicator(user_openid, true).await;
-
-        let token = self.get_access_token().await?;
-        let url = format!(
-            "{}/v2/users/{}/messages",
-            self.config.api.base_url, user_openid
-        );
-
-        let msg = MessageRequest {
-            msg_type: 0,
-            content: content.to_string(),
-            msg_seq: Self::next_msg_seq(user_openid),
-        };
-
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("QQBot {}", token))
-            .header("Content-Type", "application/json")
-            .json(&msg)
-            .send()
-            .await
-            .context("发送用户消息失败")?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("消息发送失败 ({}): {}", status, body);
-        }
-
-        Ok(())
+    /// 发送文本消息到用户
+    pub async fn send_user_message(&self, user_openid: &str, content: &str) -> Result<String> {
+        let resp = self.api.send_user_message(user_openid, content).await?;
+        Ok(resp.id)
     }
 
     /// 发送消息到群聊
-    pub async fn send_group_message(&self, group_openid: &str, content: &str) -> Result<()> {
-        self.apply_rate_limit().await;
+    pub async fn send_group_message(&self, group_openid: &str, content: &str) -> Result<String> {
+        let resp = self.api.send_group_message(group_openid, content).await?;
+        Ok(resp.id)
+    }
 
-        // 发送"正在输入"提示
-        let _ = self.send_typing_indicator(group_openid, false).await;
-
-        let token = self.get_access_token().await?;
-        let url = format!(
-            "{}/v2/groups/{}/messages",
-            self.config.api.base_url, group_openid
-        );
-
-        let msg = MessageRequest {
-            msg_type: 0,
+    /// 发送 Markdown 消息到用户（简化版）
+    pub async fn send_user_markdown(&self, user_openid: &str, content: &str) -> Result<String> {
+        let markdown = Markdown {
             content: content.to_string(),
-            msg_seq: Self::next_msg_seq(group_openid),
+            custom_template_id: None,
+            params: None,
         };
+        let resp = self.api.send_user_markdown(user_openid, &markdown).await?;
+        Ok(resp.id)
+    }
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("QQBot {}", token))
-            .header("Content-Type", "application/json")
-            .json(&msg)
-            .send()
-            .await
-            .context("发送群消息失败")?;
+    /// 发送图片到用户
+    pub async fn send_user_image(&self, user_openid: &str, image_url: &str) -> Result<String> {
+        let resp = self.api.send_user_image(user_openid, image_url).await?;
+        Ok(resp.id)
+    }
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("消息发送失败 ({}): {}", status, body);
+    /// 发送带按钮的消息
+    pub async fn send_user_message_with_buttons(
+        &self,
+        user_openid: &str,
+        content: &str,
+        buttons: Vec<(String, String, ButtonAction)>,
+    ) -> Result<String> {
+        let keyboard = self.build_keyboard(buttons);
+        let resp = self.api.send_user_message_with_keyboard(user_openid, content, &keyboard).await?;
+        Ok(resp.id)
+    }
+
+    /// 构建键盘
+    fn build_keyboard(&self, buttons: Vec<(String, String, ButtonAction)>) -> Keyboard {
+        let buttons: Vec<Button> = buttons
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (label, data, action))| {
+                let (action_type, action_data) = match action {
+                    ButtonAction::Link(url) => (0, Some(url)),
+                    ButtonAction::Callback => (1, Some(data.clone())),
+                    ButtonAction::Command => (2, Some(data.clone())),
+                };
+
+                Button {
+                    id: format!("btn_{}", idx),
+                    render_data: RenderData {
+                        label: label.clone(),
+                        visited_label: label,
+                        style: 1, // 蓝色
+                    },
+                    action: Action {
+                        action_type,
+                        permission: Permission {
+                            permission_type: 2, // 所有人
+                            specify_role_ids: None,
+                            specify_user_ids: None,
+                        },
+                        data: action_data,
+                        reply: Some(false),
+                        enter: Some(true),
+                    },
+                }
+            })
+            .collect();
+
+        let rows: Vec<KeyboardRow> = buttons
+            .chunks(2)
+            .map(|chunk| KeyboardRow {
+                buttons: chunk.to_vec(),
+            })
+            .collect();
+
+        Keyboard {
+            id: None,
+            content: KeyboardContent { rows },
+        }
+    }
+
+    /// 撤回用户消息
+    pub async fn recall_user_message(&self, user_openid: &str, message_id: &str, hidetip: bool) -> Result<()> {
+        self.api.recall_user_message(user_openid, message_id, hidetip).await
+    }
+
+    /// 撤回群消息
+    pub async fn recall_group_message(&self, group_openid: &str, message_id: &str, hidetip: bool) -> Result<()> {
+        self.api.recall_group_message(group_openid, message_id, hidetip).await
+    }
+
+    /// 禁言用户
+    pub async fn mute_member(&self, guild_id: &str, user_id: &str, seconds: u64) -> Result<()> {
+        self.api.mute_member(guild_id, user_id, seconds).await
+    }
+
+    /// 禁言全员
+    pub async fn mute_all(&self, guild_id: &str, seconds: u64) -> Result<()> {
+        self.api.mute_all(guild_id, seconds).await
+    }
+
+    /// 添加表情反应
+    pub async fn put_message_reaction(&self, channel_id: &str, message_id: &str, emoji_type: u8, emoji_id: &str) -> Result<()> {
+        self.api.put_message_reaction(channel_id, message_id, emoji_type, emoji_id).await
+    }
+
+    /// 删除表情反应
+    pub async fn delete_message_reaction(&self, channel_id: &str, message_id: &str, emoji_type: u8, emoji_id: &str) -> Result<()> {
+        self.api.delete_message_reaction(channel_id, message_id, emoji_type, emoji_id).await
+    }
+
+    /// 创建公告
+    pub async fn create_announce(&self, guild_id: &str, channel_id: &str, message_id: &str) -> Result<Announce> {
+        self.api.create_announce(guild_id, channel_id, message_id).await
+    }
+
+    /// 删除公告
+    pub async fn delete_announce(&self, guild_id: &str, message_id: &str) -> Result<()> {
+        self.api.delete_announce(guild_id, message_id).await
+    }
+
+    /// 添加精华消息
+    pub async fn add_pin(&self, channel_id: &str, message_id: &str) -> Result<PinsMessage> {
+        self.api.add_pin(channel_id, message_id).await
+    }
+
+    /// 删除精华消息
+    pub async fn delete_pin(&self, channel_id: &str, message_id: &str) -> Result<()> {
+        self.api.delete_pin(channel_id, message_id).await
+    }
+
+    /// 获取精华消息列表
+    pub async fn get_pins(&self, channel_id: &str) -> Result<PinsMessage> {
+        self.api.get_pins(channel_id).await
+    }
+
+    /// 获取日程列表
+    pub async fn get_schedules(&self, channel_id: &str, since: Option<u64>) -> Result<Vec<Schedule>> {
+        self.api.get_schedules(channel_id, since).await
+    }
+
+    /// 创建日程
+    pub async fn create_schedule(&self, channel_id: &str, schedule: &Schedule) -> Result<Schedule> {
+        self.api.create_schedule(channel_id, schedule).await
+    }
+
+    /// 删除日程
+    pub async fn delete_schedule(&self, channel_id: &str, schedule_id: &str) -> Result<()> {
+        self.api.delete_schedule(channel_id, schedule_id).await
+    }
+
+    /// 获取频道成员信息
+    pub async fn get_guild_member(&self, guild_id: &str, user_id: &str) -> Result<Member> {
+        self.api.get_guild_member(guild_id, user_id).await
+    }
+
+    /// 获取频道身份组列表
+    pub async fn get_guild_roles(&self, guild_id: &str) -> Result<Vec<Role>> {
+        self.api.get_guild_roles(guild_id).await
+    }
+
+    /// 添加频道身份组成员
+    pub async fn add_guild_role_member(
+        &self,
+        guild_id: &str,
+        role_id: &str,
+        user_id: &str,
+        channel_id: Option<&str>,
+    ) -> Result<()> {
+        self.api.add_guild_role_member(guild_id, role_id, user_id, channel_id).await
+    }
+
+    /// 发送流式消息（模拟打字效果）
+    pub async fn send_stream_message(
+        &self,
+        user_openid: &str,
+        content: &str,
+        chunk_size: usize,
+        delay_ms: u64,
+        markdown: bool,
+    ) -> Result<()> {
+        let chars: Vec<char> = content.chars().collect();
+        let total_len = chars.len();
+
+        if total_len == 0 {
+            return Ok(());
+        }
+
+        let mut accumulated = String::new();
+        let mut last_send_pos = 0;
+
+        for (idx, chunk) in chars.chunks(chunk_size).enumerate() {
+            let chunk_text: String = chunk.iter().collect();
+            accumulated.push_str(&chunk_text);
+            last_send_pos += chunk.len();
+
+            let is_final = last_send_pos >= total_len;
+
+            // 准备发送的内容（限制长度）
+            let mut send_content = accumulated.chars().take(4096).collect::<String>();
+
+            // 最终块添加换行，确保渲染完整
+            if is_final && !send_content.ends_with('\n') {
+                send_content.push('\n');
+            }
+
+            if markdown {
+                self.api.send_stream_markdown_chunk(
+                    user_openid,
+                    &send_content,
+                    is_final
+                ).await?;
+            } else {
+                self.api.send_stream_chunk(
+                    user_openid,
+                    &send_content,
+                    is_final
+                ).await?;
+            }
+
+            tracing::debug!("发送流式块 {} ({}/{}) chars={}", idx, last_send_pos, total_len, send_content.len());
+
+            // 延迟下一块，给服务器和客户端足够的处理时间
+            if !is_final {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
         }
 
         Ok(())
     }
 
-    /// 发送 Markdown 消息到用户
-    pub async fn send_user_markdown(&self, user_openid: &str, markdown: &str) -> Result<()> {
-        self.apply_rate_limit().await;
-
-        let token = self.get_access_token().await?;
-        let url = format!(
-            "{}/v2/users/{}/messages",
-            self.config.api.base_url, user_openid
-        );
-
-        let msg = serde_json::json!({
-            "msg_type": 2,
-            "markdown": {
-                "content": markdown
-            },
-            "msg_seq": Self::next_msg_seq(user_openid),
-        });
-
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("QQBot {}", token))
-            .header("Content-Type", "application/json")
-            .json(&msg)
-            .send()
-            .await
-            .context("发送 Markdown 消息失败")?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("消息发送失败 ({}): {}", status, body);
-        }
-
-        Ok(())
+    /// 取消流式消息
+    pub async fn cancel_stream(&self, user_openid: &str) -> Result<()> {
+        self.api.cancel_stream(user_openid).await
     }
+}
 
-    /// 发送"正在输入"提示 (msg_type: 6)
-    async fn send_typing_indicator(&self, openid: &str, is_user: bool) -> Result<()> {
-        let token = self.get_access_token().await?;
-        let url = if is_user {
-            format!("{}/v2/users/{}/messages", self.config.api.base_url, openid)
-        } else {
-            format!("{}/v2/groups/{}/messages", self.config.api.base_url, openid)
-        };
-
-        let typing_msg = serde_json::json!({
-            "msg_type": 6,
-            "msg_seq": Self::next_msg_seq(openid),
-        });
-
-        let _ = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("QQBot {}", token))
-            .header("Content-Type", "application/json")
-            .json(&typing_msg)
-            .send()
-            .await;
-
-        Ok(())
-    }
+/// 按钮动作类型
+pub enum ButtonAction {
+    Link(String),
+    Callback,
+    Command,
 }

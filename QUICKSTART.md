@@ -38,7 +38,14 @@ min_interval_secs = 1
 需要先获取用户的 OpenID（可以通过机器人接收到的消息查看）：
 
 ```bash
+# 发送文本消息
 ./qq_warning send-user "用户OpenID" "你好！"
+
+# 发送 Markdown 消息
+./qq_warning send-user "用户OpenID" "# 标题\n**粗体**" --markdown
+
+# 发送图片
+./qq_warning send-user "用户OpenID" "图片内容" --image "https://example.com/image.jpg"
 ```
 
 ### 发送群聊消息
@@ -47,6 +54,32 @@ min_interval_secs = 1
 
 ```bash
 ./qq_warning send-group "群OpenID" "大家好！"
+```
+
+### 撤回消息
+
+```bash
+# 撤回私聊消息
+./qq_warning recall user "用户OpenID" "消息ID"
+
+# 撤回群消息（隐藏撤回提示）
+./qq_warning recall group "群OpenID" "消息ID" --hidetip
+```
+
+### 频道管理
+
+```bash
+# 禁言用户 60 秒
+./qq_warning guild mute "频道ID" "用户ID" --seconds 60
+
+# 添加精华消息
+./qq_warning guild pin-add "子频道ID" "消息ID"
+
+# 查看精华消息列表
+./qq_warning guild pin-list "子频道ID"
+
+# 创建公告
+./qq_warning guild announce-create "频道ID" "子频道ID" "消息ID"
 ```
 
 ## 步骤 5: 启动后台服务（可选）

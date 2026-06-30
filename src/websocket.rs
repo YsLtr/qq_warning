@@ -331,7 +331,13 @@ impl WebSocketService {
         tracing::info!("  发送者: {} ({})", msg.author.username, msg.author.id);
 
         if !msg.content.is_empty() {
-            tracing::info!("  内容: {}", msg.content);
+            if msg.msg_type == 2 {
+                // Markdown 渲染
+                self.render_markdown(&msg.content);
+            } else {
+                // 普通文本
+                tracing::info!("  内容: {}", msg.content);
+            }
         }
 
         // 处理附件
@@ -380,6 +386,88 @@ impl WebSocketService {
         );
 
         Ok(())
+    }
+
+    fn render_markdown(&self, content: &str) {
+        // 简单的 Markdown 渲染（终端友好）
+        println!("  内容 (Markdown):");
+        println!("  {}", "─".repeat(60));
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // 标题渲染
+            if trimmed.starts_with("# ") {
+                println!("  \x1b[1;33m{}\x1b[0m", &trimmed[2..].trim()); // 黄色粗体
+            } else if trimmed.starts_with("## ") {
+                println!("  \x1b[1;36m{}\x1b[0m", &trimmed[3..].trim()); // 青色粗体
+            } else if trimmed.starts_with("### ") {
+                println!("  \x1b[1;32m{}\x1b[0m", &trimmed[4..].trim()); // 绿色粗体
+            }
+            // 列表项
+            else if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+                println!("  \x1b[36m•\x1b[0m {}", &trimmed[2..].trim());
+            }
+            // 代码块
+            else if trimmed.starts_with("```") {
+                println!("  \x1b[90m{}\x1b[0m", trimmed); // 灰色
+            }
+            // 引用
+            else if trimmed.starts_with("> ") {
+                println!("  \x1b[90m│\x1b[0m \x1b[3m{}\x1b[0m", &trimmed[2..].trim()); // 斜体
+            }
+            // 普通文本（处理粗体和斜体）
+            else {
+                let processed = Self::process_inline_markdown(trimmed);
+                println!("  {}", processed);
+            }
+        }
+
+        println!("  {}", "─".repeat(60));
+    }
+
+    fn process_inline_markdown(text: &str) -> String {
+        let mut result = text.to_string();
+
+        // 简单处理粗体 **text**
+        while let Some(start) = result.find("**") {
+            if let Some(end) = result[start + 2..].find("**") {
+                let end = start + 2 + end;
+                let bold_text = &result[start + 2..end];
+                let replaced = format!("\x1b[1m{}\x1b[0m", bold_text);
+                result.replace_range(start..end + 2, &replaced);
+            } else {
+                break;
+            }
+        }
+
+        // 简单处理斜体 *text* 或 _text_
+        for marker in &["*", "_"] {
+            while let Some(start) = result.find(marker) {
+                if let Some(end) = result[start + 1..].find(marker) {
+                    let end = start + 1 + end;
+                    let italic_text = &result[start + 1..end];
+                    let replaced = format!("\x1b[3m{}\x1b[0m", italic_text);
+                    result.replace_range(start..end + 1, &replaced);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // 简单处理行内代码 `code`
+        while let Some(start) = result.find('`') {
+            if let Some(end) = result[start + 1..].find('`') {
+                let end = start + 1 + end;
+                let code_text = &result[start + 1..end];
+                let replaced = format!("\x1b[90m{}\x1b[0m", code_text);
+                result.replace_range(start..end + 1, &replaced);
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 
     async fn download_attachment(&self, att: &Attachment, msg_id: &str) -> Result<()> {
