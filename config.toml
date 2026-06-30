@@ -18,3 +18,23 @@ auth_url = "https://bots.qq.com/app/getAppAccessToken"
 [rate_limit]
 # 速率限制：消息间隔（秒）
 min_interval_secs = 1
+
+[notifications]
+# 是否启用桌面通知
+enabled = true
+# 是否播放提示音
+sound = true
+# 是否显示消息预览
+show_preview = true
+
+[logging]
+# 日志级别: trace, debug, info, warn, error
+level = "info"
+# 日志文件路径（留空则仅输出到控制台）
+file = "qq_warning.log"
+
+[features]
+# 是否自动下载图片和文件
+auto_download_media = true
+# 媒体文件保存目录
+media_dir = "./media"

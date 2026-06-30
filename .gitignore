@@ -4,3 +4,4 @@
 # Config with credentials
 config.local.toml
 
+*.log

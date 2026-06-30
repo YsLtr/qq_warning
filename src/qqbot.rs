@@ -153,6 +153,9 @@ impl QQBot {
     pub async fn send_user_message(&self, user_openid: &str, content: &str) -> Result<()> {
         self.apply_rate_limit().await;
 
+        // 发送"正在输入"提示
+        let _ = self.send_typing_indicator(user_openid, true).await;
+
         let token = self.get_access_token().await?;
         let url = format!(
             "{}/v2/users/{}/messages",
@@ -188,6 +191,9 @@ impl QQBot {
     pub async fn send_group_message(&self, group_openid: &str, content: &str) -> Result<()> {
         self.apply_rate_limit().await;
 
+        // 发送"正在输入"提示
+        let _ = self.send_typing_indicator(group_openid, false).await;
+
         let token = self.get_access_token().await?;
         let url = format!(
             "{}/v2/groups/{}/messages",
@@ -215,6 +221,69 @@ impl QQBot {
             let body = resp.text().await.unwrap_or_default();
             anyhow::bail!("消息发送失败 ({}): {}", status, body);
         }
+
+        Ok(())
+    }
+
+    /// 发送 Markdown 消息到用户
+    pub async fn send_user_markdown(&self, user_openid: &str, markdown: &str) -> Result<()> {
+        self.apply_rate_limit().await;
+
+        let token = self.get_access_token().await?;
+        let url = format!(
+            "{}/v2/users/{}/messages",
+            self.config.api.base_url, user_openid
+        );
+
+        let msg = serde_json::json!({
+            "msg_type": 2,
+            "markdown": {
+                "content": markdown
+            },
+            "msg_seq": Self::next_msg_seq(user_openid),
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("QQBot {}", token))
+            .header("Content-Type", "application/json")
+            .json(&msg)
+            .send()
+            .await
+            .context("发送 Markdown 消息失败")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("消息发送失败 ({}): {}", status, body);
+        }
+
+        Ok(())
+    }
+
+    /// 发送"正在输入"提示 (msg_type: 6)
+    async fn send_typing_indicator(&self, openid: &str, is_user: bool) -> Result<()> {
+        let token = self.get_access_token().await?;
+        let url = if is_user {
+            format!("{}/v2/users/{}/messages", self.config.api.base_url, openid)
+        } else {
+            format!("{}/v2/groups/{}/messages", self.config.api.base_url, openid)
+        };
+
+        let typing_msg = serde_json::json!({
+            "msg_type": 6,
+            "msg_seq": Self::next_msg_seq(openid),
+        });
+
+        let _ = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("QQBot {}", token))
+            .header("Content-Type", "application/json")
+            .json(&typing_msg)
+            .send()
+            .await;
 
         Ok(())
     }
