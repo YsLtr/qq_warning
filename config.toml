@@ -3,10 +3,10 @@
 
 [bot]
 # 机器人 AppID
-app_id = "1904802929"
+app_id = "your_app_id_here"
 
 # 机器人 ClientSecret
-client_secret = "ujYOE5wogZTNID952zxvuuuvwy036AEJ"
+client_secret = "your_client_secret_here"
 
 [api]
 # API 基础地址
