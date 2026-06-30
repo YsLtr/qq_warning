@@ -30,7 +30,7 @@ show_preview = true
 [logging]
 # 日志级别: trace, debug, info, warn, error
 level = "info"
-# 日志文件路径（留空则仅输出到控制台）
+# 日志文件路径（留空则仅输出到控制台，指定文件则同时输出到控制台和文件）
 file = "qq_warning.log"
 
 [features]

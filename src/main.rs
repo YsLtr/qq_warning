@@ -50,24 +50,41 @@ fn init_logging(config: &config::Config) {
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(log_level));
 
-    let subscriber = fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_thread_ids(false);
+    let has_log_file = config.logging.file.as_ref()
+        .map(|f| !f.is_empty())
+        .unwrap_or(false);
 
-    if let Some(log_file) = &config.logging.file {
+    if has_log_file {
+        let log_file = config.logging.file.as_ref().unwrap();
+        // 同时输出到控制台和文件
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_file)
             .expect("无法打开日志文件");
 
-        subscriber
+        let file_layer = fmt::layer()
             .with_writer(std::sync::Mutex::new(file))
-            .with_ansi(false)
+            .with_ansi(false);
+
+        let stdout_layer = fmt::layer()
+            .with_writer(std::io::stdout);
+
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(file_layer)
+            .with(stdout_layer)
             .init();
     } else {
-        subscriber.init();
+        // 仅输出到控制台
+        fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .with_thread_ids(false)
+            .init();
     }
 }
 
