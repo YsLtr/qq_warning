@@ -33,6 +33,20 @@ impl QQBot {
         Ok(resp.id)
     }
 
+    /// 被动回复群消息（携带 msg_id，5 分钟内有效，无需主动消息权限）
+    pub async fn reply_group_message(
+        &self,
+        group_openid: &str,
+        content: &str,
+        msg_id: &str,
+    ) -> Result<String> {
+        let resp = self
+            .api
+            .reply_group_message(group_openid, content, msg_id)
+            .await?;
+        Ok(resp.id)
+    }
+
     /// 发送 Markdown 消息到用户（简化版）
     pub async fn send_user_markdown(&self, user_openid: &str, content: &str) -> Result<String> {
         let markdown = Markdown {
