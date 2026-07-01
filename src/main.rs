@@ -112,6 +112,9 @@ enum SendTarget {
         /// 被动回复：指定消息 ID（msg_id），5 分钟内有效，无需主动消息权限
         #[arg(long)]
         msg_id: Option<String>,
+        /// 使用 Markdown 格式
+        #[arg(short, long)]
+        markdown: bool,
     },
 }
 
@@ -297,13 +300,18 @@ async fn main() -> Result<()> {
                     tracing::info!("✓ 消息发送成功");
                 }
 
-                SendTarget::Group { group_id, message, image, msg_id } => {
+                SendTarget::Group { group_id, message, image, msg_id, markdown } => {
                     if image.is_some() {
                         tracing::warn!("群消息暂不支持直接发送图片");
                     }
                     if let Some(mid) = msg_id {
-                        tracing::info!("正在被动回复群 {} (msg_id {})...", group_id, mid);
-                        bot.reply_group_message(&group_id, &message, &mid).await?;
+                        if markdown {
+                            tracing::info!("正在被动回复群 {} (Markdown, msg_id {})...", group_id, mid);
+                            bot.reply_group_message_markdown(&group_id, &message, &mid).await?;
+                        } else {
+                            tracing::info!("正在被动回复群 {} (msg_id {})...", group_id, mid);
+                            bot.reply_group_message(&group_id, &message, &mid).await?;
+                        }
                     } else {
                         tracing::info!("正在发送消息到群 {}...", group_id);
                         bot.send_group_message(&group_id, &message).await?;

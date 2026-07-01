@@ -276,6 +276,36 @@ impl QQBotApi {
         .await
     }
 
+    /// 被动回复群消息（Markdown 格式，msg_type=2，携带 msg_id）
+    pub async fn reply_group_message_markdown(
+        &self,
+        group_openid: &str,
+        content: &str,
+        msg_id: &str,
+    ) -> Result<MessageResponse> {
+        self.apply_rate_limit().await;
+
+        let markdown = Markdown {
+            content: content.to_string(),
+            custom_template_id: None,
+            params: None,
+        };
+
+        let msg = MessageRequest {
+            msg_type: Some(2),
+            markdown: Some(markdown),
+            msg_id: Some(msg_id.to_string()),
+            ..Default::default()
+        };
+
+        self.request(
+            reqwest::Method::POST,
+            &format!("/v2/groups/{}/messages", group_openid),
+            Some(msg),
+        )
+        .await
+    }
+
     /// 发送 Markdown 消息到用户
     pub async fn send_user_markdown(&self, user_openid: &str, markdown: &Markdown) -> Result<MessageResponse> {
         self.apply_rate_limit().await;
